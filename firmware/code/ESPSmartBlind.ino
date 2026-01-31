@@ -5,14 +5,8 @@
 #include <ESP32Servo.h>
 #include <Update.h>
 
-// =================================================
-// VERSION
-// =================================================
 #define FW_VERSION "1.1.0"
 
-// =================================================
-// SERVO
-// =================================================
 Servo blindServo;
 
 #define SERVO_PIN 18
@@ -25,36 +19,21 @@ Servo blindServo;
 #define OPEN_TIME    4200
 #define CLOSE_TIME   3800
 
-// =================================================
-// LED
-// =================================================
 #define LED_PIN 2
 
-// =================================================
-// RESET BUTTON
-// =================================================
 #define RESET_BTN 0
 #define RESET_TIME 5000
 
 unsigned long resetPressedAt = 0;
 bool resetTriggered = false;
 
-// =================================================
-// OBJECTS
-// =================================================
 WebServer server(80);
 Preferences prefs;
 
-// =================================================
-// CONFIG
-// =================================================
 String wifi_ssid;
 String wifi_pass;
 String api_key;
 
-// =================================================
-// BLIND STATE
-// =================================================
 enum BlindState {
   STATE_OPEN,
   STATE_CLOSED,
@@ -65,12 +44,8 @@ enum BlindState {
 
 BlindState blindState = STATE_STOPPED;
 
-// подготовка под проценты (НЕ используется)
 int currentPercent = 0;
 
-// =================================================
-// UTILS
-// =================================================
 String stateToString() {
   switch (blindState) {
     case STATE_OPEN: return "open";
@@ -82,9 +57,6 @@ String stateToString() {
   return "unknown";
 }
 
-// =================================================
-// SMART STOP
-// =================================================
 void smartStop(int lastDir) {
   blindServo.write(lastDir == SERVO_OPEN ? SERVO_CLOSE : SERVO_OPEN);
   delay(BRAKE_TIME);
@@ -95,9 +67,6 @@ void smartStop(int lastDir) {
   blindServo.detach();
 }
 
-// =================================================
-// CONFIG PORTAL
-// =================================================
 void startConfigPortal() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP("ESP-SmartBlind-Setup");
@@ -127,9 +96,6 @@ void startConfigPortal() {
   server.begin();
 }
 
-// =================================================
-// WIFI
-// =================================================
 void connectToWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
@@ -146,15 +112,10 @@ void connectToWiFi() {
   }
 }
 
-// =================================================
-// API KEY
-// =================================================
 bool checkKey() {
   return server.hasArg("key") && server.arg("key") == api_key;
 }
-// =================================================
-// OTA (LOCAL ONLY)
-// =================================================
+
 bool isLocalClient() {
   IPAddress ip = server.client().remoteIP();
   if (ip[0] == 192 && ip[1] == 168) return true;
@@ -200,9 +161,6 @@ void setupOTA() {
   );
 }
 
-// =================================================
-// SETUP
-// =================================================
 void setup() {
   Serial.begin(115200);
 
@@ -237,7 +195,6 @@ void setup() {
     server.send(200, "text/html", page);
   });
 
-  // ================= OPEN =================
   server.on("/open", []() {
     if (!checkKey()) { server.send(403, "text/plain", "Forbidden"); return; }
 
@@ -256,7 +213,6 @@ void setup() {
     server.send(200, "text/plain", "OPEN OK");
   });
 
-  // ================= CLOSE =================
   server.on("/close", []() {
     if (!checkKey()) { server.send(403, "text/plain", "Forbidden"); return; }
 
@@ -275,7 +231,6 @@ void setup() {
     server.send(200, "text/plain", "CLOSE OK");
   });
 
-  // ================= STOP =================
   server.on("/stop", []() {
     if (!checkKey()) { server.send(403, "text/plain", "Forbidden"); return; }
 
@@ -290,7 +245,6 @@ void setup() {
     server.send(200, "text/plain", "STOPPED");
   });
 
-  // ================= STATUS =================
   server.on("/status", []() {
     String json = "{";
     json += "\"state\":\"" + stateToString() + "\",";
@@ -306,13 +260,9 @@ void setup() {
   server.begin();
 }
 
-// =================================================
-// LOOP
-// =================================================
 void loop() {
   server.handleClient();
 
-  // RESET BUTTON
   if (digitalRead(RESET_BTN) == LOW) {
     if (resetPressedAt == 0) resetPressedAt = millis();
 
@@ -326,4 +276,5 @@ void loop() {
     resetPressedAt = 0;
     resetTriggered = false;
   }
+
 }
