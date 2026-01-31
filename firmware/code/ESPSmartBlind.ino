@@ -5,7 +5,7 @@
 #include <ESP32Servo.h>
 #include <Update.h>
 
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "0.1.1"
 
 Servo blindServo;
 
@@ -278,3 +278,4 @@ void loop() {
   }
 
 }
+
