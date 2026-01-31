@@ -1,0 +1,49 @@
+# ===============================
+# Arduino / ESP32
+# ===============================
+
+# Arduino build files
+*.bin
+*.elf
+*.hex
+*.map
+
+# Arduino IDE temp
+*.tmp
+*.log
+
+# Build folders
+/build
+/build/*
+/.pio
+/.pioenvs
+/.piolibdeps
+
+# Arduino IDE 2.x
+.arduinoIDE/
+arduino_debug.cfg
+arduino_debug.exe
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ===============================
+# Secrets
+# ===============================
+
+# Config files with secrets
+config.h
+secrets.h
+wifi.h
+
+# ===============================
+# Local notes
+# ===============================
+
+*.bak
+*.old
+*.swp
