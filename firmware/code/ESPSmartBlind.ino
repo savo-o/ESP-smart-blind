@@ -5,27 +5,22 @@
 #include <ESP32Servo.h>
 #include <Update.h>
 
-#define FW_VERSION "0.1.1"
+#define FW_VERSION "1.1.0"
 
 Servo blindServo;
 
 #define SERVO_PIN 18
+#define SERVO_STOP 90
+#define SERVO_OPEN 120
+#define SERVO_CLOSE 60
 
-#define SERVO_STOP   90
-#define SERVO_OPEN   120
-#define SERVO_CLOSE  60
-
-#define BRAKE_TIME   70
-#define OPEN_TIME    4200
-#define CLOSE_TIME   3800
+#define BRAKE_TIME 70
+#define OPEN_TIME 4200
+#define CLOSE_TIME 3800
 
 #define LED_PIN 2
-
 #define RESET_BTN 0
 #define RESET_TIME 5000
-
-unsigned long resetPressedAt = 0;
-bool resetTriggered = false;
 
 WebServer server(80);
 Preferences prefs;
@@ -33,6 +28,9 @@ Preferences prefs;
 String wifi_ssid;
 String wifi_pass;
 String api_key;
+
+unsigned long resetPressedAt = 0;
+bool resetTriggered = false;
 
 enum BlindState {
   STATE_OPEN,
@@ -43,8 +41,48 @@ enum BlindState {
 };
 
 BlindState blindState = STATE_STOPPED;
-
 int currentPercent = 0;
+
+enum LedMode {
+  LED_OFF,
+  LED_ON,
+  LED_FAST_BLINK,
+  LED_SLOW_BLINK
+};
+
+LedMode ledMode = LED_OFF;
+unsigned long ledTimer = 0;
+bool ledState = false;
+
+void setLedMode(LedMode mode) {
+  ledMode = mode;
+  ledTimer = millis();
+  ledState = false;
+  digitalWrite(LED_PIN, LOW);
+}
+
+void handleLed() {
+  unsigned long now = millis();
+
+  if (ledMode == LED_OFF) {
+    digitalWrite(LED_PIN, LOW);
+    return;
+  }
+
+  if (ledMode == LED_ON) {
+    digitalWrite(LED_PIN, HIGH);
+    return;
+  }
+
+  unsigned long interval =
+    (ledMode == LED_FAST_BLINK) ? 150 : 1000;
+
+  if (now - ledTimer >= interval) {
+    ledTimer = now;
+    ledState = !ledState;
+    digitalWrite(LED_PIN, ledState);
+  }
+}
 
 String stateToString() {
   switch (blindState) {
@@ -60,16 +98,15 @@ String stateToString() {
 void smartStop(int lastDir) {
   blindServo.write(lastDir == SERVO_OPEN ? SERVO_CLOSE : SERVO_OPEN);
   delay(BRAKE_TIME);
-
   blindServo.write(SERVO_STOP);
   delay(120);
-
   blindServo.detach();
 }
 
 void startConfigPortal() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP("ESP-SmartBlind-Setup");
+  setLedMode(LED_FAST_BLINK);
 
   server.on("/", HTTP_GET, []() {
     server.send(200, "text/html",
@@ -86,8 +123,7 @@ void startConfigPortal() {
   server.on("/save", HTTP_POST, []() {
     prefs.putString("ssid", server.arg("ssid"));
     prefs.putString("pass", server.arg("pass"));
-    prefs.putString("key",  server.arg("key"));
-
+    prefs.putString("key", server.arg("key"));
     server.send(200, "text/html", "<h3>Saved. Rebooting...</h3>");
     delay(1500);
     ESP.restart();
@@ -99,14 +135,16 @@ void startConfigPortal() {
 void connectToWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
+  setLedMode(LED_SLOW_BLINK);
 
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
-    delay(500);
+    delay(300);
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     MDNS.begin("smartblind");
+    setLedMode(LED_OFF);
   } else {
     startConfigPortal();
   }
@@ -133,14 +171,13 @@ void setupOTA() {
 
     server.send(200, "text/html",
       "<h2>ESP Smart Blind OTA</h2>"
-      "<p>Firmware version: " FW_VERSION "</p>"
+      "<p>Firmware: " FW_VERSION "</p>"
       "<form method='POST' action='/update' enctype='multipart/form-data'>"
       "<input type='file' name='firmware'>"
       "<input type='submit' value='Update'>"
       "</form>"
     );
   });
-
   server.on("/update", HTTP_POST,
     []() {
       server.sendHeader("Connection", "close");
@@ -150,13 +187,9 @@ void setupOTA() {
     },
     []() {
       HTTPUpload& upload = server.upload();
-      if (upload.status == UPLOAD_FILE_START) {
-        Update.begin(UPDATE_SIZE_UNKNOWN);
-      } else if (upload.status == UPLOAD_FILE_WRITE) {
-        Update.write(upload.buf, upload.currentSize);
-      } else if (upload.status == UPLOAD_FILE_END) {
-        Update.end(true);
-      }
+      if (upload.status == UPLOAD_FILE_START) Update.begin(UPDATE_SIZE_UNKNOWN);
+      else if (upload.status == UPLOAD_FILE_WRITE) Update.write(upload.buf, upload.currentSize);
+      else if (upload.status == UPLOAD_FILE_END) Update.end(true);
     }
   );
 }
@@ -175,64 +208,62 @@ void setup() {
 
   wifi_ssid = prefs.getString("ssid", "");
   wifi_pass = prefs.getString("pass", "");
-  api_key   = prefs.getString("key", "");
+  api_key = prefs.getString("key", "");
 
   blindState = (BlindState)prefs.getInt("state", STATE_STOPPED);
 
-  if (wifi_ssid == "") {
-    startConfigPortal();
-  } else {
-    connectToWiFi();
-  }
+  if (wifi_ssid == "") startConfigPortal();
+  else connectToWiFi();
 
   server.on("/", []() {
     String page;
     page += "<h2>ESP Smart Blind</h2>";
     page += "<p>Firmware: " FW_VERSION "</p>";
     page += "<p>State: " + stateToString() + "</p>";
-    page += "<p>mDNS: smartblind.local</p>";
     page += "<p>IP: " + WiFi.localIP().toString() + "</p>";
     server.send(200, "text/html", page);
   });
 
   server.on("/open", []() {
-    if (!checkKey()) { server.send(403, "text/plain", "Forbidden"); return; }
+    if (!checkKey()) { server.send(403, "Forbidden"); return; }
 
     blindState = STATE_OPENING;
     prefs.putInt("state", blindState);
+    setLedMode(LED_ON);
 
     blindServo.attach(SERVO_PIN);
     blindServo.write(SERVO_OPEN);
     delay(OPEN_TIME);
-
     smartStop(SERVO_OPEN);
 
     blindState = STATE_OPEN;
     prefs.putInt("state", blindState);
+    setLedMode(LED_OFF);
 
-    server.send(200, "text/plain", "OPEN OK");
+    server.send(200, "OPEN OK");
   });
 
   server.on("/close", []() {
-    if (!checkKey()) { server.send(403, "text/plain", "Forbidden"); return; }
+    if (!checkKey()) { server.send(403, "Forbidden"); return; }
 
     blindState = STATE_CLOSING;
     prefs.putInt("state", blindState);
+    setLedMode(LED_ON);
 
     blindServo.attach(SERVO_PIN);
     blindServo.write(SERVO_CLOSE);
     delay(CLOSE_TIME);
-
     smartStop(SERVO_CLOSE);
 
     blindState = STATE_CLOSED;
     prefs.putInt("state", blindState);
+    setLedMode(LED_OFF);
 
-    server.send(200, "text/plain", "CLOSE OK");
+    server.send(200, "CLOSE OK");
   });
 
   server.on("/stop", []() {
-    if (!checkKey()) { server.send(403, "text/plain", "Forbidden"); return; }
+    if (!checkKey()) { server.send(403, "Forbidden"); return; }
 
     blindServo.attach(SERVO_PIN);
     blindServo.write(SERVO_STOP);
@@ -241,19 +272,9 @@ void setup() {
 
     blindState = STATE_STOPPED;
     prefs.putInt("state", blindState);
+    setLedMode(LED_OFF);
 
-    server.send(200, "text/plain", "STOPPED");
-  });
-
-  server.on("/status", []() {
-    String json = "{";
-    json += "\"state\":\"" + stateToString() + "\",";
-    json += "\"percent\":" + String(currentPercent) + ",";
-    json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-    json += "\"mdns\":\"smartblind.local\",";
-    json += "\"fw\":\"" FW_VERSION "\"";
-    json += "}";
-    server.send(200, "application/json", json);
+    server.send(200, "STOPPED");
   });
 
   setupOTA();
@@ -262,20 +283,20 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  handleLed();
 
   if (digitalRead(RESET_BTN) == LOW) {
     if (resetPressedAt == 0) resetPressedAt = millis();
 
     if (!resetTriggered && millis() - resetPressedAt > RESET_TIME) {
       resetTriggered = true;
+      setLedMode(LED_SLOW_BLINK);
       prefs.clear();
-      delay(500);
+      delay(800);
       ESP.restart();
     }
   } else {
     resetPressedAt = 0;
     resetTriggered = false;
   }
-
 }
-
