@@ -23,6 +23,8 @@
 
 - Браузер Google Chrome или Microsoft Edge
 
+### Запуск
+
 1. Откройте в браузере: https://savo-o.github.io/firmware-esp-smart-blind
 
 2. Нажмите CONNECT  
@@ -134,6 +136,7 @@ http://IP_ПЛАТЫ/open?key=ВАШ_API_КЛЮЧ
 - Создать сайт для обновлений
 - Улучшить первую настройку
 - Сделать настройку еще проще
+
 
 
 
